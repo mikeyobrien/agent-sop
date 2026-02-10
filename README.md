@@ -72,6 +72,47 @@ Initialize the project environment and create necessary directory structures.
 | **[pdd](agent-sops/pdd.sop.md)** | Prompt-driven development methodology | Complex problem solving, architectural decisions, system design |
 | **[code-task-generator](agent-sops/code-task-generator.sop.md)** | Intelligent task breakdown and planning from requirements | Project planning, sprint preparation, requirement analysis |
 | **[code-assist](agent-sops/code-assist.sop.md)** | TDD-based code implementation with structured workflow | Feature development, bug fixes, refactoring |
+| **[eval](agent-sops/eval.sop.md)** | Automated evaluation workflow for AI agents using [Strands Evals SDK](https://github.com/strands-agents/evals) | Evaluation planning, test data generation, evaluation execution, and result analysis ([usage guide](https://strandsagents.com/latest/documentation/docs/user-guide/evals-sdk/eval-sop/)) |
+
+## Directory Structure
+
+The Prompt-Driven Development (PDD) family of SOPs (`codebase-summary`, `pdd`, `code-task-generator`, `code-assist`) write their artifacts to a `.agents/` directory with this default organizational structure:
+
+```
+.agents/
+├── summary/               # codebase-summary output (always commit)
+│   └── *.md
+├── planning/              # pdd output (often worth committing)
+│   └── {project_name}/
+│       ├── rough-idea.md
+│       ├── idea-honing.md
+│       ├── research/
+│       ├── design/
+│       └── implementation/
+├── tasks/                 # code-task-generator output (optionally commit)
+│   └── {project_name}/
+│       └── step01/
+│           └── task-*.code-task.md
+└── scratchpad/            # code-assist working files (add to .gitignore)
+    └── {project_name}/
+        └── {task_name}/
+```
+
+**Why this structure?**
+
+The hierarchy is organized by what you're likely to want to commit:
+
+1. **`summary/`** - Documentation from `codebase-summary`. Useful for both humans and agents. Recommend always committing.
+2. **`planning/`** - Design docs from `pdd`. Captures decisions, alternatives considered, and rationale that tend to be lost in traditional software development. Often worth committing.
+3. **`tasks/`** - Code tasks from `code-task-generator`. May be committed or tracked in an issue tracker instead.
+4. **`scratchpad/`** - Working notes from `code-assist`. Transient implementation artifacts. Add to `.gitignore`.
+
+**Note:** When project names are auto-generated, they are prefixed with the current date (YYYY-MM-DD) for easy identification and sorting (e.g., `2026-01-30-auth-system`).
+
+This separation also enables you to focus your AI tools' context on useful reference docs. For example, in Kiro CLI, you can "pin" relevant files in the planning folder while implementing a project:
+```
+/context add .agents/planning/{project_name}/**/*.md
+```
 
 ## Quick Start
 
@@ -116,7 +157,7 @@ while(True):
 
 ### Using as MCP Server
 
-The MCP (Model Context Protocol) server exposes SOPs as tools that AI assistants can discover and execute on-demand:
+The MCP (Model Context Protocol) server exposes SOPs as prompts that AI assistants can discover and use on-demand:
 
 ```bash
 # Install the package (see Quick Start for pip alternative)
@@ -131,6 +172,22 @@ strands-agents-sops mcp --sop-paths ~/my-sops:/path/to/other-sops
 # External SOPs override built-in SOPs with same name
 strands-agents-sops mcp --sop-paths ~/custom-sops  # Your custom code-assist.sop.md overrides built-in
 ```
+
+#### Using SOPs in Different AI Tools
+
+The syntax for invoking MCP prompts varies between AI tools:
+
+**Kiro:**
+```
+@codebase-summary
+```
+
+**Claude Code:**
+```
+/strands-agents-sops:codebase-summary
+```
+
+
 
 #### External SOP Loading
 
@@ -171,6 +228,114 @@ Then connect your MCP-compatible AI assistant to access SOPs as tools. Here is a
   }
 }
 ```
+
+---
+
+## Cursor IDE Integration
+
+Agent SOPs can be converted to Cursor commands, allowing you to execute workflows directly within Cursor IDE using the `/` command prefix.
+
+### Understanding Cursor Rules vs Commands
+
+- **Rules** (`.cursor/rules`): Provide persistent, system-level guidance that's automatically applied. Rules are static and don't support parameters.
+- **Commands** (`.cursor/commands`): Reusable workflows triggered with `/` prefix. Commands can prompt users for input, making them ideal for parameterized SOPs.
+
+Since Agent SOPs are parameterized workflows that need user input, they're best implemented as **Commands** rather than Rules.
+
+### Converting SOPs to Cursor Commands
+
+Each Agent SOP can be automatically converted to Cursor command format:
+
+```bash
+# Generate Cursor commands from built-in SOPs (default output: .cursor/commands)
+strands-agents-sops commands --type cursor
+
+# Or specify custom output directory
+strands-agents-sops commands --type cursor --output-dir .cursor/commands
+
+# Load external SOPs from custom directories
+strands-agents-sops commands --type cursor --sop-paths ~/my-sops:/path/to/other-sops
+
+# External SOPs override built-in SOPs with same name
+strands-agents-sops commands --type cursor --sop-paths ~/custom-sops --output-dir .cursor/commands
+```
+
+#### External SOP Loading
+
+The `--sop-paths` argument allows you to extend commands generation with your own SOPs:
+
+- **File format**: Only files with `.sop.md` postfix are recognized as SOPs
+- **Colon-separated paths**: `~/sops1:/absolute/path:relative/path`
+- **Path expansion**: Supports `~` (home directory) and relative paths
+- **First-wins precedence**: External SOPs override built-in SOPs with same name
+- **Graceful error handling**: Invalid paths or malformed SOPs are skipped with warnings
+
+**Example workflow:**
+```bash
+# Create your custom SOP
+mkdir ~/my-sops
+cat > ~/my-sops/custom-workflow.sop.md << 'EOF'
+# Custom Workflow
+## Overview
+My custom workflow for specific tasks.
+## Parameters
+- **task** (required): Description of task
+## Steps
+### 1. Custom Step
+Do something custom.
+EOF
+
+# Generate Cursor commands with your custom SOPs
+strands-agents-sops commands --type cursor --sop-paths ~/my-sops
+```
+
+This creates command files in `.cursor/commands/`:
+```
+.cursor/commands/
+├── code-assist.sop.md
+├── codebase-summary.sop.md
+├── code-task-generator.sop.md
+├── pdd.sop.md
+└── custom-workflow.sop.md
+```
+
+### Using Commands in Cursor
+
+1. **Generate commands**: Run `strands-agents-sops commands --type cursor` in your project root
+2. **Execute workflows**: In Cursor chat, type `/` followed by the command name (e.g., `/code-assist.sop`)
+3. **Provide parameters**: When prompted, provide the required parameters for the workflow
+
+**Example:**
+```
+You: /code-assist.sop
+
+AI: I'll help you implement code using the code-assist workflow. 
+    Please provide the following required parameters:
+    - task_description: [description of the task]
+    - mode (optional, default: "auto"): "interactive" or "auto"
+    
+You: task_description: "Create a user authentication system"
+     mode: "interactive"
+```
+
+### Command Format
+
+Each generated command includes:
+- Clear usage instructions
+- Parameter documentation (required and optional)
+- Full SOP content for execution
+
+The commands handle parameters by prompting users when executed, since Cursor doesn't support explicit parameter passing. The SOP's "Constraints for parameter acquisition" section guides this interaction.
+
+### Parameter Handling
+
+Since Cursor commands don't support explicit parameters, the generated commands include instructions to prompt users for required inputs. The AI assistant will:
+1. Read the command file when you type `/command-name`
+2. Identify required and optional parameters from the SOP
+3. Prompt you for all required parameters upfront
+4. Execute the workflow with the provided parameters
+
+This approach maintains the parameterized nature of SOPs while working within Cursor's command system.
 
 ---
 
